@@ -1,6 +1,5 @@
 package com.example.g85report.dto;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -23,8 +22,4 @@ public class SqlTraceStep {
 
     /** Static human-readable explanation of what this query does. */
     private String explanation;
-
-    /** All rows returned by this SQL, formatted as a table (columns + rows). */
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    private QueryResultTable resultTable;
 }

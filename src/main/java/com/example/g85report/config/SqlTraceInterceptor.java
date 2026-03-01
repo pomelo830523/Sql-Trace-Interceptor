@@ -12,7 +12,6 @@ public class SqlTraceInterceptor implements HandlerInterceptor {
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         if ("true".equalsIgnoreCase(request.getHeader("X-Trace-SQL"))) {
             SqlCaptureHolder.startCapture();
-            QueryResultCaptureHolder.startCapture();
         }
         return true;
     }
@@ -21,6 +20,5 @@ public class SqlTraceInterceptor implements HandlerInterceptor {
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response,
                                 Object handler, Exception ex) {
         SqlCaptureHolder.stopCapture();
-        QueryResultCaptureHolder.stopCapture();
     }
 }

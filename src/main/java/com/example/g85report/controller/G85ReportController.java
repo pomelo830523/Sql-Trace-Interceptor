@@ -1,6 +1,5 @@
 package com.example.g85report.controller;
 
-import com.example.g85report.config.QueryResultCaptureHolder;
 import com.example.g85report.config.SqlCaptureHolder;
 import com.example.g85report.dto.GenerateReportRequest;
 import com.example.g85report.dto.GenerateReportResponse;
@@ -35,10 +34,7 @@ public class G85ReportController {
 
         if (SqlCaptureHolder.isCapturing()) {
             response.setSqlTrace(
-                reportService.buildTrace(
-                    SqlCaptureHolder.getCaptured(),
-                    QueryResultCaptureHolder.getCaptured()
-                )
+                reportService.buildTrace(SqlCaptureHolder.getCaptured())
             );
         }
 
