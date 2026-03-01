@@ -1,9 +1,7 @@
 package com.example.g85report.service;
 
-import com.example.g85report.config.SqlCaptureHolder;
 import com.example.g85report.dto.GenerateReportRequest;
 import com.example.g85report.dto.GenerateReportResponse;
-import com.example.g85report.dto.GenerateWithTraceResponse;
 import com.example.g85report.dto.SqlTraceStep;
 import com.example.g85report.dto.WaferSqlTrace;
 import com.example.g85report.entity.BinDefinition;
@@ -26,6 +24,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
@@ -120,111 +120,64 @@ public class G85ReportService {
     }
 
     /**
-     * Same as {@link #generate} but also returns per-wafer SQL execution traces
-     * with real parameter values. SQL is captured in ThreadLocal and never persisted.
+     * Converts a flat list of captured SQLs into per-wafer trace objects.
+     * Called by the controller when X-Trace-SQL: true was present.
+     *
+     * Expected layout after filtering UNKNOWN entries:
+     *   [0]           WAFER_INFO  – shared across all wafers
+     *   [1], [2]      DIE_RESULT + BIN_DEFINITION for wafer 1
+     *   [3], [4]      DIE_RESULT + BIN_DEFINITION for wafer 2
+     *   ...
      */
-    public GenerateWithTraceResponse generateWithTrace(GenerateReportRequest request) {
+    public List<WaferSqlTrace> buildTrace(List<String> sqls) {
+        // 1. Drop entries that don't map to a known table (e.g. INSERT report_log)
+        List<String> filtered = sqls.stream()
+                .filter(s -> !"UNKNOWN".equals(getSqlType(s)))
+                .toList();
 
-        String reportId  = UUID.randomUUID().toString();
-        String lotId     = request.getLotId();
-        String outputDir = outputBasePath + "/" + lotId + "/";
+        List<WaferSqlTrace> result = new ArrayList<>();
+        if (filtered.isEmpty()) return result;
 
-        List<String>       fileNames = new ArrayList<>();
-        List<WaferSqlTrace> sqlTrace = new ArrayList<>();
-        String status   = "SUCCESS";
-        String errorMsg = null;
-
-        try {
-            // ── Step 1: capture findByLotId SQL ───────────────────────────
-            SqlCaptureHolder.startCapture();
-            List<WaferInfo> wafers = waferInfoRepo.findByLotId(lotId);
-            List<String> lotSqls = new ArrayList<>(SqlCaptureHolder.getCaptured());
-            SqlCaptureHolder.stopCapture();
-
-            if (wafers.isEmpty()) {
-                throw new IllegalArgumentException("LotId not found: " + lotId);
-            }
-
-            // ── Create output directory ────────────────────────────────────
-            Path dirPath = Paths.get(outputDir);
-            Files.createDirectories(dirPath);
-
-            // ── Steps 2-3: per-wafer queries + XML generation ─────────────
-            for (WaferInfo wafer : wafers) {
-                SqlCaptureHolder.startCapture();
-                try {
-                    List<DieResult>    dies    = dieResultRepo.findByWaferId(wafer.getWaferId());
-                    List<BinDefinition> binDefs = binDefRepo.findByProductIdOrderByBinCode(wafer.getProductId());
-
-                    String xml      = xmlGenerator.generate(wafer, dies, binDefs);
-                    String fileName = wafer.getWaferId() + ".xml";
-                    Files.writeString(dirPath.resolve(fileName), xml);
-                    fileNames.add(fileName);
-
-                    // Merge lotSqls (step 1) + per-wafer sqls (steps 2-3)
-                    List<String> waferSqls = SqlCaptureHolder.getCaptured();
-                    List<String> allSqls   = new ArrayList<>(lotSqls);
-                    allSqls.addAll(waferSqls);
-
-                    sqlTrace.add(buildWaferTrace(wafer.getWaferId(), allSqls));
-
-                    log.info("[G85-trace] Wafer {} generated, dies={}", wafer.getWaferId(), dies.size());
-                } finally {
-                    SqlCaptureHolder.stopCapture();
-                }
-            }
-
-            log.info("[G85-trace] Lot {} done, total {} wafers", lotId, fileNames.size());
-
-        } catch (Exception e) {
-            log.error("[G85-trace] Lot {} generation failed: {}", lotId, e.getMessage(), e);
-            // Ensure ThreadLocal is cleaned up on unexpected error
-            SqlCaptureHolder.stopCapture();
-            status   = "FAIL";
-            errorMsg = e.getMessage();
-        }
-
-        // ── Persist report log (same as generate) ─────────────────────────
-        ReportLog record = new ReportLog();
-        record.setReportId(reportId);
-        record.setLotId(lotId);
-        record.setStatus(status);
-        record.setWaferCount(fileNames.size());
-        record.setOutputPath(outputDir);
-        record.setErrorMsg(errorMsg);
-        record.setCreatedAt(LocalDateTime.now());
-        reportLogRepo.save(record);
-
-        return GenerateWithTraceResponse.builder()
-                .reportId(reportId)
-                .lotId(lotId)
-                .waferCount(fileNames.size())
-                .status(status)
-                .outputPath(outputDir)
-                .files(fileNames)
-                .errorMsg(errorMsg)
-                .sqlTrace(sqlTrace)
+        // 2. First entry is WAFER_INFO – shared step 1 for every wafer
+        SqlTraceStep step1 = SqlTraceStep.builder()
+                .stepOrder(1)
+                .sqlType(getSqlType(filtered.get(0)))
+                .sql(filtered.get(0))
+                .explanation(getExplanation(filtered.get(0)))
                 .build();
+
+        // 3. Remaining entries are paired: DIE_RESULT + BIN_DEFINITION
+        Pattern waferIdPattern = Pattern.compile("wafer_id='([^']+)'", Pattern.CASE_INSENSITIVE);
+        for (int i = 1; i + 1 < filtered.size(); i += 2) {
+            String dieResultSql = filtered.get(i);
+            String binDefSql    = filtered.get(i + 1);
+
+            Matcher m = waferIdPattern.matcher(dieResultSql);
+            String waferId = m.find() ? m.group(1) : "UNKNOWN-" + ((i / 2) + 1);
+
+            SqlTraceStep step2 = SqlTraceStep.builder()
+                    .stepOrder(2)
+                    .sqlType(getSqlType(dieResultSql))
+                    .sql(dieResultSql)
+                    .explanation(getExplanation(dieResultSql))
+                    .build();
+
+            SqlTraceStep step3 = SqlTraceStep.builder()
+                    .stepOrder(3)
+                    .sqlType(getSqlType(binDefSql))
+                    .sql(binDefSql)
+                    .explanation(getExplanation(binDefSql))
+                    .build();
+
+            result.add(WaferSqlTrace.builder()
+                    .waferId(waferId)
+                    .steps(List.of(step1, step2, step3))
+                    .build());
+        }
+        return result;
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
-
-    private WaferSqlTrace buildWaferTrace(String waferId, List<String> sqls) {
-        List<SqlTraceStep> steps = new ArrayList<>();
-        for (int i = 0; i < sqls.size(); i++) {
-            String sql = sqls.get(i);
-            steps.add(SqlTraceStep.builder()
-                    .stepOrder(i + 1)
-                    .sqlType(getSqlType(sql))
-                    .sql(sql)
-                    .explanation(getExplanation(sql))
-                    .build());
-        }
-        return WaferSqlTrace.builder()
-                .waferId(waferId)
-                .steps(steps)
-                .build();
-    }
 
     private String getSqlType(String sql) {
         String lower = sql.toLowerCase();

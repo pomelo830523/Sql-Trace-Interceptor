@@ -15,7 +15,7 @@
   - [1. 產生 G85 報表](#1-產生-g85-報表)
   - [2. 下載個別晶圓報表](#2-下載個別晶圓報表)
   - [3. 查詢報表產生歷程](#3-查詢報表產生歷程)
-  - [4. 產生報表並取得 SQL 溯源軌跡](#4-產生報表並取得-sql-溯源軌跡)
+- [SQL 溯源（X-Trace-SQL Header）](#sql-溯源x-trace-sql-header)
 - [G85 XML 格式](#g85-xml-格式)
 - [設定檔](#設定檔)
 - [範例資料](#範例資料)
@@ -31,7 +31,7 @@
 - 依批號一鍵產生該批所有晶圓的 G85 XML 報表
 - 支援個別晶圓報表下載
 - 查詢歷史報表產生紀錄
-- **即時 SQL 溯源**：產生報表的同時，回傳每片晶圓的 SQL 執行軌跡（含真實參數值與說明文字）
+- **即時 SQL 溯源**：在任意 API 請求加上 `X-Trace-SQL: true` header，即可在回應中取得每片晶圓的 SQL 執行軌跡（含真實參數值與說明文字），不需改動 Service 程式碼
 - 內建 H2 嵌入式資料庫，無需安裝額外資料庫
 - 首次啟動自動建立範例資料（25 片晶圓）
 
@@ -102,17 +102,18 @@ g85-report/
 │   ├── G85ReportApplication.java       # Spring Boot 入口
 │   ├── config/
 │   │   ├── DataInitializer.java        # 範例資料初始化
+│   │   ├── DataSourceProxyBeanPostProcessor.java  # DataSource 代理包裝
 │   │   ├── SqlCaptureHolder.java       # ThreadLocal SQL 收集工具
 │   │   ├── SqlCaptureListener.java     # datasource-proxy SQL 攔截監聽器
-│   │   └── DataSourceProxyBeanPostProcessor.java  # DataSource 代理包裝
+│   │   ├── SqlTraceInterceptor.java    # HandlerInterceptor：讀取 X-Trace-SQL header
+│   │   └── WebMvcConfig.java           # 將 SqlTraceInterceptor 掛載至 /api/report/**
 │   ├── controller/
 │   │   └── G85ReportController.java    # REST API 端點
 │   ├── dto/
-│   │   ├── GenerateReportRequest.java      # 報表產生請求 DTO
-│   │   ├── GenerateReportResponse.java     # 報表產生回應 DTO
-│   │   ├── GenerateWithTraceResponse.java  # 含 SQL 溯源的回應 DTO
-│   │   ├── SqlTraceStep.java               # 單筆 SQL 步驟（含說明）
-│   │   └── WaferSqlTrace.java              # 單片晶圓的 SQL 步驟清單
+│   │   ├── GenerateReportRequest.java  # 報表產生請求 DTO
+│   │   ├── GenerateReportResponse.java # 報表產生回應 DTO（含選用的 sqlTrace 欄位）
+│   │   ├── SqlTraceStep.java           # 單筆 SQL 步驟（含說明）
+│   │   └── WaferSqlTrace.java          # 單片晶圓的 SQL 步驟清單
 │   ├── entity/
 │   │   ├── WaferInfo.java              # 晶圓基本資訊
 │   │   ├── DieResult.java              # Die 測試結果
@@ -213,15 +214,16 @@ Content-Type: application/json
   "lotId": "999999",
   "waferCount": 25,
   "status": "SUCCESS",
-  "outputPath": "./reports/999999",
+  "outputPath": "./reports/999999/",
   "files": [
     "999999-0001.xml",
     "999999-0002.xml",
     "..."
-  ],
-  "errorMsg": null
+  ]
 }
 ```
+
+> `errorMsg` 為 null 時，欄位不出現在 JSON 回應中（`@JsonInclude(NON_NULL)`）。
 
 **Response（失敗）：**
 
@@ -231,9 +233,9 @@ Content-Type: application/json
   "lotId": "INVALID",
   "waferCount": 0,
   "status": "FAIL",
-  "outputPath": null,
+  "outputPath": "./reports/INVALID/",
   "files": [],
-  "errorMsg": "查無此 Lot ID 的晶圓資料"
+  "errorMsg": "LotId not found: INVALID"
 }
 ```
 
@@ -276,8 +278,7 @@ curl "http://localhost:8080/api/report/g85/history?lotId=999999"
     "lotId": "999999",
     "status": "SUCCESS",
     "waferCount": 25,
-    "outputPath": "./reports/999999",
-    "errorMsg": null,
+    "outputPath": "./reports/999999/",
     "createdAt": "2024-01-01T12:00:00"
   }
 ]
@@ -285,24 +286,28 @@ curl "http://localhost:8080/api/report/g85/history?lotId=999999"
 
 ---
 
-### 4. 產生報表並取得 SQL 溯源軌跡
+## SQL 溯源（X-Trace-SQL Header）
 
-```
-POST /api/report/g85/generate-with-trace
-Content-Type: application/json
-```
+在任意 API 請求加上 `X-Trace-SQL: true` header，回應即包含 `sqlTrace` 欄位，列出本次請求所執行的每片晶圓 SQL 軌跡（含真實參數值）。不加 header 時，回應中完全不出現 `sqlTrace` 欄位。
 
-行為與 `/generate` 完全相同，額外在 Response 中回傳每片晶圓的 SQL 執行軌跡（含真實參數值）。SQL 僅在該次請求期間以 ThreadLocal 暫存，不寫入資料庫。
+**一般呼叫（無 sqlTrace）：**
 
-**Request Body：**
-
-```json
-{
-  "lotId": "999999"
-}
+```bash
+curl -s -X POST http://localhost:8080/api/report/g85/generate \
+  -H "Content-Type: application/json" \
+  -d '{"lotId":"999999"}'
 ```
 
-**Response（成功）：**
+**開啟溯源（帶 X-Trace-SQL header）：**
+
+```bash
+curl -s -X POST http://localhost:8080/api/report/g85/generate \
+  -H "Content-Type: application/json" \
+  -H "X-Trace-SQL: true" \
+  -d '{"lotId":"999999"}'
+```
+
+**Response（帶 sqlTrace）：**
 
 ```json
 {
@@ -312,7 +317,6 @@ Content-Type: application/json
   "status": "SUCCESS",
   "outputPath": "./reports/999999/",
   "files": ["999999-0001.xml", "999999-0002.xml", "..."],
-  "errorMsg": null,
   "sqlTrace": [
     {
       "waferId": "999999-0001",
@@ -345,7 +349,7 @@ Content-Type: application/json
 }
 ```
 
-**Response（失敗）：**
+**Response（lotId 不存在 + X-Trace-SQL: true）：**
 
 ```json
 {
@@ -353,9 +357,9 @@ Content-Type: application/json
   "lotId": "NOTEXIST",
   "waferCount": 0,
   "status": "FAIL",
+  "errorMsg": "LotId not found: NOTEXIST",
   "outputPath": "./reports/NOTEXIST/",
   "files": [],
-  "errorMsg": "LotId not found: NOTEXIST",
   "sqlTrace": []
 }
 ```
@@ -365,12 +369,27 @@ Content-Type: application/json
 | 欄位 | 說明 |
 |------|------|
 | `waferId` | 晶圓 ID |
-| `steps[].stepOrder` | 步驟序號（1-based） |
-| `steps[].sqlType` | 查詢的目標表格：`WAFER_INFO` / `DIE_RESULT` / `BIN_DEFINITION` |
+| `steps[].stepOrder` | 步驟序號（1-based，每片 wafer 固定 3 步） |
+| `steps[].sqlType` | 查詢目標表格：`WAFER_INFO` / `DIE_RESULT` / `BIN_DEFINITION` |
 | `steps[].sql` | 含真實參數值的完整 SQL |
 | `steps[].explanation` | 該 SQL 的業務說明文字 |
 
-> **實作原理：** 使用 `datasource-proxy` 在 JDBC 層攔截所有 SQL 執行，以 `ThreadLocal<List<String>>` 收集當次請求的 SQL 軌跡，請求結束後自動清除，不占用額外資料庫資源。
+**實作原理：**
+
+```
+Request (X-Trace-SQL: true)
+  │
+  ├─ SqlTraceInterceptor.preHandle()     → SqlCaptureHolder.startCapture()
+  │
+  ├─ G85ReportService.generate()         → SQL 由 datasource-proxy 攔截並寫入 ThreadLocal
+  │
+  ├─ Controller 讀取 SqlCaptureHolder    → reportService.buildTrace(captured)
+  │                                        組裝 WaferSqlTrace 清單
+  │
+  └─ SqlTraceInterceptor.afterCompletion() → SqlCaptureHolder.stopCapture()（一定執行）
+```
+
+SQL 僅在該次請求期間以 ThreadLocal 暫存，請求結束後由 Interceptor 的 `afterCompletion` 自動清除，不寫入資料庫。Service 層完全不感知 tracing 的存在。
 
 ---
 

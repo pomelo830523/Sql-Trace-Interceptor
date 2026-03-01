@@ -1,8 +1,8 @@
 package com.example.g85report.controller;
 
+import com.example.g85report.config.SqlCaptureHolder;
 import com.example.g85report.dto.GenerateReportRequest;
 import com.example.g85report.dto.GenerateReportResponse;
-import com.example.g85report.dto.GenerateWithTraceResponse;
 import com.example.g85report.entity.ReportLog;
 import com.example.g85report.service.G85ReportService;
 import lombok.RequiredArgsConstructor;
@@ -31,18 +31,13 @@ public class G85ReportController {
     @PostMapping("/generate")
     public ResponseEntity<GenerateReportResponse> generate(@RequestBody GenerateReportRequest request) {
         GenerateReportResponse response = reportService.generate(request);
-        return ResponseEntity.ok(response);
-    }
 
-    /**
-     * 產生 G85 XML 並即時回傳每片晶圓的 SQL 執行軌跡（含真實參數值）
-     * POST /api/report/g85/generate-with-trace
-     * Body: { "lotId": "999999" }
-     */
-    @PostMapping("/generate-with-trace")
-    public ResponseEntity<GenerateWithTraceResponse> generateWithTrace(
-            @RequestBody GenerateReportRequest request) {
-        GenerateWithTraceResponse response = reportService.generateWithTrace(request);
+        if (SqlCaptureHolder.isCapturing()) {
+            response.setSqlTrace(
+                reportService.buildTrace(SqlCaptureHolder.getCaptured())
+            );
+        }
+
         return ResponseEntity.ok(response);
     }
 
