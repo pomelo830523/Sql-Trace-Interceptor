@@ -48,6 +48,12 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- AOP: repository result capture -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
         <!-- datasource-proxy: JDBC-layer SQL interception -->
         <dependency>
             <groupId>net.ttddyy</groupId>

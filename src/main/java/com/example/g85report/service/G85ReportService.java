@@ -2,6 +2,7 @@ package com.example.g85report.service;
 
 import com.example.g85report.dto.GenerateReportRequest;
 import com.example.g85report.dto.GenerateReportResponse;
+import com.example.g85report.dto.QueryResultTable;
 import com.example.g85report.dto.SqlTraceStep;
 import com.example.g85report.dto.WaferSqlTrace;
 import com.example.g85report.entity.BinDefinition;
@@ -22,10 +23,13 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -120,17 +124,21 @@ public class G85ReportService {
     }
 
     /**
-     * Converts a flat list of captured SQLs into per-wafer trace objects.
-     * Called by the controller when X-Trace-SQL: true was present.
+     * Converts a flat list of captured SQLs and their result sets into per-wafer
+     * trace objects. Called by the controller when X-Trace-SQL: true was present.
      *
-     * Expected layout after filtering UNKNOWN entries:
-     *   [0]           WAFER_INFO  – shared across all wafers
-     *   [1], [2]      DIE_RESULT + BIN_DEFINITION for wafer 1
-     *   [3], [4]      DIE_RESULT + BIN_DEFINITION for wafer 2
+     * Expected layout after filtering UNKNOWN entries (N wafers → 2N+1 items):
+     *   sqls/results [0]         WAFER_INFO  – shared across all wafers
+     *   sqls/results [1], [2]    DIE_RESULT + BIN_DEFINITION for wafer 1
+     *   sqls/results [3], [4]    DIE_RESULT + BIN_DEFINITION for wafer 2
      *   ...
+     *
+     * @param sqls    flat SQL list from SqlCaptureHolder (may include UNKNOWN entries)
+     * @param results flat result list from QueryResultCaptureHolder (same order, no UNKNOWN)
      */
-    public List<WaferSqlTrace> buildTrace(List<String> sqls) {
-        // 1. Drop entries that don't map to a known table (e.g. INSERT report_log)
+    public List<WaferSqlTrace> buildTrace(List<String> sqls,
+                                          List<List<Map<String, Object>>> results) {
+        // 1. Drop UNKNOWN entries (e.g. INSERT report_log); results already exclude them
         List<String> filtered = sqls.stream()
                 .filter(s -> !"UNKNOWN".equals(getSqlType(s)))
                 .toList();
@@ -144,6 +152,7 @@ public class G85ReportService {
                 .sqlType(getSqlType(filtered.get(0)))
                 .sql(filtered.get(0))
                 .explanation(getExplanation(filtered.get(0)))
+                .resultTable(toResultTable(results, 0))
                 .build();
 
         // 3. Remaining entries are paired: DIE_RESULT + BIN_DEFINITION
@@ -160,6 +169,7 @@ public class G85ReportService {
                     .sqlType(getSqlType(dieResultSql))
                     .sql(dieResultSql)
                     .explanation(getExplanation(dieResultSql))
+                    .resultTable(toResultTable(results, i))
                     .build();
 
             SqlTraceStep step3 = SqlTraceStep.builder()
@@ -167,6 +177,7 @@ public class G85ReportService {
                     .sqlType(getSqlType(binDefSql))
                     .sql(binDefSql)
                     .explanation(getExplanation(binDefSql))
+                    .resultTable(toResultTable(results, i + 1))
                     .build();
 
             result.add(WaferSqlTrace.builder()
@@ -175,6 +186,32 @@ public class G85ReportService {
                     .build());
         }
         return result;
+    }
+
+    /**
+     * Converts results.get(index) into a QueryResultTable (columns + rows).
+     * Returns an empty table if the index is out of range.
+     */
+    private QueryResultTable toResultTable(List<List<Map<String, Object>>> results, int index) {
+        if (index >= results.size()) {
+            return QueryResultTable.builder().columns(List.of()).rows(List.of()).build();
+        }
+        List<Map<String, Object>> rows = results.get(index);
+        if (rows.isEmpty()) {
+            return QueryResultTable.builder().columns(List.of()).rows(List.of()).build();
+        }
+
+        List<String> columns = new ArrayList<>(rows.get(0).keySet());
+        List<List<Object>> tableRows = rows.stream()
+                .map(row -> columns.stream()
+                        .map(row::get)
+                        .collect(Collectors.toList()))
+                .collect(Collectors.toList());
+
+        return QueryResultTable.builder()
+                .columns(columns)
+                .rows(tableRows)
+                .build();
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
