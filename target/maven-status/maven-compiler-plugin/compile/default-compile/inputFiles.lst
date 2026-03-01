@@ -1,0 +1,15 @@
+C:\Java_workspace\g85-report\src\main\java\com\example\g85report\service\G85ReportService.java
+C:\Java_workspace\g85-report\src\main\java\com\example\g85report\dto\GenerateReportResponse.java
+C:\Java_workspace\g85-report\src\main\java\com\example\g85report\service\G85XmlGenerator.java
+C:\Java_workspace\g85-report\src\main\java\com\example\g85report\controller\G85ReportController.java
+C:\Java_workspace\g85-report\src\main\java\com\example\g85report\repository\DieResultRepository.java
+C:\Java_workspace\g85-report\src\main\java\com\example\g85report\repository\WaferInfoRepository.java
+C:\Java_workspace\g85-report\src\main\java\com\example\g85report\entity\DieResult.java
+C:\Java_workspace\g85-report\src\main\java\com\example\g85report\repository\ReportLogRepository.java
+C:\Java_workspace\g85-report\src\main\java\com\example\g85report\config\DataInitializer.java
+C:\Java_workspace\g85-report\src\main\java\com\example\g85report\entity\ReportLog.java
+C:\Java_workspace\g85-report\src\main\java\com\example\g85report\dto\GenerateReportRequest.java
+C:\Java_workspace\g85-report\src\main\java\com\example\g85report\entity\BinDefinition.java
+C:\Java_workspace\g85-report\src\main\java\com\example\g85report\entity\WaferInfo.java
+C:\Java_workspace\g85-report\src\main\java\com\example\g85report\G85ReportApplication.java
+C:\Java_workspace\g85-report\src\main\java\com\example\g85report\repository\BinDefinitionRepository.java

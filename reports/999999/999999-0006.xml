@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Maps>
+
+<Map
+xmlns:semi="http://www.semi.org"
+WaferId="999999-0006"
+FormatRevision="G85-1101"
+>
+
+
+<Device
+ProductId="PROD-001"
+WaferSize="300"
+LotId="999999"
+CreateDate="2026-02-10T17:20:40.886998"
+SupplierName="SupplierA"
+Rows="20"
+Columns="15"
+Orientation="0"
+OriginLocation="3"
+BinType="Decimal"
+NullBin="255"
+>
+
+
+<Bin
+BinCode="000"
+BinCount="5"
+BinQuality="Fail"
+BinDescription="No Pick Site"
+/>
+
+
+<Bin
+BinCode="001"
+BinCount="132"
+BinQuality="Pass"
+BinDescription="Pick"
+/>
+
+
+<Bin
+BinCode="091"
+BinCount="14"
+BinQuality="Fail"
+BinDescription="Ugly"
+/>
+
+
+<Bin
+BinCode="092"
+BinCount="3"
+BinQuality="Fail"
+BinDescription="Electrical Fail"
+/>
+
+
+<SupplierData
+ProductCode="P001"
+RecipeName="RECIPE-A"
+ToolType="PROBER-X"
+/>
+
+
+<Data MapName="WAFER_MAP" Version="2">
+<Row><![CDATA[255 255 255 255 255 255 255 255 255 255 255 255 255 255 255]]></Row>
+<Row><![CDATA[255 255 255 255 255 255 255 255 255 255 255 255 255 255 255]]></Row>
+<Row><![CDATA[255 255 255 255 255 255 255 255 255 255 255 255 255 255 255]]></Row>
+<Row><![CDATA[255 255 255 255 255 001 001 091 001 001 255 255 255 255 255]]></Row>
+<Row><![CDATA[255 255 255 001 001 001 001 001 091 001 001 001 255 255 255]]></Row>
+<Row><![CDATA[255 255 001 001 000 000 001 001 001 001 001 001 001 255 255]]></Row>
+<Row><![CDATA[255 001 001 001 001 001 001 001 001 001 091 001 091 001 255]]></Row>
+<Row><![CDATA[255 001 001 001 001 001 001 001 001 001 001 001 001 092 255]]></Row>
+<Row><![CDATA[255 001 001 001 001 001 001 001 001 001 092 001 001 001 255]]></Row>
+<Row><![CDATA[255 001 001 001 001 001 001 001 001 091 001 001 001 001 255]]></Row>
+<Row><![CDATA[255 001 001 001 001 001 001 001 091 091 091 091 001 001 255]]></Row>
+<Row><![CDATA[255 001 001 001 001 001 001 001 001 001 001 001 001 001 255]]></Row>
+<Row><![CDATA[255 001 001 001 092 001 001 001 001 000 091 001 001 001 255]]></Row>
+<Row><![CDATA[255 001 091 001 001 001 091 001 001 091 001 001 001 001 255]]></Row>
+<Row><![CDATA[255 255 001 001 001 001 001 001 001 001 000 001 001 255 255]]></Row>
+<Row><![CDATA[255 255 255 001 001 001 091 001 001 000 001 001 255 255 255]]></Row>
+<Row><![CDATA[255 255 255 255 255 001 001 001 001 001 255 255 255 255 255]]></Row>
+<Row><![CDATA[255 255 255 255 255 255 255 255 255 255 255 255 255 255 255]]></Row>
+<Row><![CDATA[255 255 255 255 255 255 255 255 255 255 255 255 255 255 255]]></Row>
+<Row><![CDATA[255 255 255 255 255 255 255 255 255 255 255 255 255 255 255]]></Row>
+</Data>
+
+</Device>
+
+</Map>
+
+</Maps>
