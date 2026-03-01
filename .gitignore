@@ -1,0 +1,14 @@
+# Maven build output
+target/
+
+# H2 embedded database files
+data/
+
+# Generated report output
+reports/
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
