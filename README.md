@@ -12,6 +12,10 @@
 - [專案結構](#專案結構)
 - [資料模型](#資料模型)
 - [API 說明](#api-說明)
+  - [1. 產生 G85 報表](#1-產生-g85-報表)
+  - [2. 下載個別晶圓報表](#2-下載個別晶圓報表)
+  - [3. 查詢報表產生歷程](#3-查詢報表產生歷程)
+  - [4. 產生報表並取得 SQL 溯源軌跡](#4-產生報表並取得-sql-溯源軌跡)
 - [G85 XML 格式](#g85-xml-格式)
 - [設定檔](#設定檔)
 - [範例資料](#範例資料)
@@ -27,6 +31,7 @@
 - 依批號一鍵產生該批所有晶圓的 G85 XML 報表
 - 支援個別晶圓報表下載
 - 查詢歷史報表產生紀錄
+- **即時 SQL 溯源**：產生報表的同時，回傳每片晶圓的 SQL 執行軌跡（含真實參數值與說明文字）
 - 內建 H2 嵌入式資料庫，無需安裝額外資料庫
 - 首次啟動自動建立範例資料（25 片晶圓）
 
@@ -40,6 +45,7 @@
 | Spring Boot | 3.2.3 |
 | Spring Data JPA | Hibernate ORM |
 | H2 Database | 檔案模式（File-based），路徑 `./data/g85db` |
+| datasource-proxy | 1.10，JDBC 層 SQL 攔截，用於即時 SQL 溯源 |
 | Lombok | 減少樣板程式碼 |
 | Maven | 建置工具 |
 
@@ -95,12 +101,18 @@ g85-report/
 ├── src/main/java/com/example/g85report/
 │   ├── G85ReportApplication.java       # Spring Boot 入口
 │   ├── config/
-│   │   └── DataInitializer.java        # 範例資料初始化
+│   │   ├── DataInitializer.java        # 範例資料初始化
+│   │   ├── SqlCaptureHolder.java       # ThreadLocal SQL 收集工具
+│   │   ├── SqlCaptureListener.java     # datasource-proxy SQL 攔截監聽器
+│   │   └── DataSourceProxyBeanPostProcessor.java  # DataSource 代理包裝
 │   ├── controller/
 │   │   └── G85ReportController.java    # REST API 端點
 │   ├── dto/
-│   │   ├── GenerateReportRequest.java  # 報表產生請求 DTO
-│   │   └── GenerateReportResponse.java # 報表產生回應 DTO
+│   │   ├── GenerateReportRequest.java      # 報表產生請求 DTO
+│   │   ├── GenerateReportResponse.java     # 報表產生回應 DTO
+│   │   ├── GenerateWithTraceResponse.java  # 含 SQL 溯源的回應 DTO
+│   │   ├── SqlTraceStep.java               # 單筆 SQL 步驟（含說明）
+│   │   └── WaferSqlTrace.java              # 單片晶圓的 SQL 步驟清單
 │   ├── entity/
 │   │   ├── WaferInfo.java              # 晶圓基本資訊
 │   │   ├── DieResult.java              # Die 測試結果
@@ -270,6 +282,95 @@ curl "http://localhost:8080/api/report/g85/history?lotId=999999"
   }
 ]
 ```
+
+---
+
+### 4. 產生報表並取得 SQL 溯源軌跡
+
+```
+POST /api/report/g85/generate-with-trace
+Content-Type: application/json
+```
+
+行為與 `/generate` 完全相同，額外在 Response 中回傳每片晶圓的 SQL 執行軌跡（含真實參數值）。SQL 僅在該次請求期間以 ThreadLocal 暫存，不寫入資料庫。
+
+**Request Body：**
+
+```json
+{
+  "lotId": "999999"
+}
+```
+
+**Response（成功）：**
+
+```json
+{
+  "reportId": "a1b2c3d4-...",
+  "lotId": "999999",
+  "waferCount": 25,
+  "status": "SUCCESS",
+  "outputPath": "./reports/999999/",
+  "files": ["999999-0001.xml", "999999-0002.xml", "..."],
+  "errorMsg": null,
+  "sqlTrace": [
+    {
+      "waferId": "999999-0001",
+      "steps": [
+        {
+          "stepOrder": 1,
+          "sqlType": "WAFER_INFO",
+          "sql": "select wi1_0.wafer_id,... from wafer_info wi1_0 where wi1_0.lot_id='999999'",
+          "explanation": "依批號（lot_id）查詢該批次內所有晶圓的基本資訊，包含產品代號、晶圓尺寸、Die 格數等，是整份報表產生流程的起點。"
+        },
+        {
+          "stepOrder": 2,
+          "sqlType": "DIE_RESULT",
+          "sql": "select dr1_0.id,... from die_result dr1_0 where dr1_0.wafer_id='999999-0001'",
+          "explanation": "依晶圓 ID（wafer_id）查詢該晶圓所有 Die 的座標（row, col）與 Bin 分類碼（bin_code），用於填入 G85 XML 的晶圓格點陣列。"
+        },
+        {
+          "stepOrder": 3,
+          "sqlType": "BIN_DEFINITION",
+          "sql": "select bd1_0.id,... from bin_definition bd1_0 where bd1_0.product_id='PROD-001' order by bd1_0.bin_code",
+          "explanation": "依產品代號（product_id）查詢所有 Bin 碼的品質分類（Pass/Fail）與描述文字，用於在 G85 XML 輸出 <Bin> 標籤。"
+        }
+      ]
+    },
+    {
+      "waferId": "999999-0002",
+      "steps": ["..."]
+    }
+  ]
+}
+```
+
+**Response（失敗）：**
+
+```json
+{
+  "reportId": "...",
+  "lotId": "NOTEXIST",
+  "waferCount": 0,
+  "status": "FAIL",
+  "outputPath": "./reports/NOTEXIST/",
+  "files": [],
+  "errorMsg": "LotId not found: NOTEXIST",
+  "sqlTrace": []
+}
+```
+
+**sqlTrace 欄位說明：**
+
+| 欄位 | 說明 |
+|------|------|
+| `waferId` | 晶圓 ID |
+| `steps[].stepOrder` | 步驟序號（1-based） |
+| `steps[].sqlType` | 查詢的目標表格：`WAFER_INFO` / `DIE_RESULT` / `BIN_DEFINITION` |
+| `steps[].sql` | 含真實參數值的完整 SQL |
+| `steps[].explanation` | 該 SQL 的業務說明文字 |
+
+> **實作原理：** 使用 `datasource-proxy` 在 JDBC 層攔截所有 SQL 執行，以 `ThreadLocal<List<String>>` 收集當次請求的 SQL 軌跡，請求結束後自動清除，不占用額外資料庫資源。
 
 ---
 
